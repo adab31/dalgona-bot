@@ -85,9 +85,9 @@ client.on("interactionCreate", async interaction => {
     const now = Date.now();
     if (now - user.lastDaily < 86400000) return interaction.reply("⏰ Daily already claimed!");
     user.lastDaily = now;
-    user.coins += 20000;
+    user.coins += 1000; // Updated daily reward
     saveDB();
-    return interaction.reply("🎁 You received 20,000 coins!");
+    return interaction.reply("🎁 You received 1,000 coins!");
   }
 
   /* ===== DALGONA GAME (BUTTON INTERFACE WITH SUCCESS/FAIL EMBEDS) ===== */
@@ -106,7 +106,7 @@ client.on("interactionCreate", async interaction => {
       .addFields(
         { name: "Player", value: `<@${interaction.user.id}>`, inline: true },
         { name: "Prize", value: `$${game.reward}`, inline: true },
-        { name: "Time", value: `${game.time}s`, inline: true },
+        { name: "Time", value: `60s`, inline: true },
         { name: "Cookie Integrity", value: `100%`, inline: false },
         { name: "Carving Progress", value: `[${"⬛".repeat(0)}${"⬜".repeat(10)}]`, inline: false }
       );
@@ -121,7 +121,8 @@ client.on("interactionCreate", async interaction => {
 
     const filter = i => i.user.id === interaction.user.id && ["light", "medium", "heavy"].includes(i.customId);
 
-    const collector = interaction.channel.createMessageComponentCollector({ filter, time: game.time * 1000 });
+    // Collector time fixed to 60 seconds
+    const collector = interaction.channel.createMessageComponentCollector({ filter, time: 60000 });
 
     collector.on("collect", async i => {
       if (i.customId === "light") { carvingProgress += 1; cookieIntegrity -= 2; }
