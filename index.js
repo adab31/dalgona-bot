@@ -4,7 +4,9 @@ const {
   GatewayIntentBits,
   EmbedBuilder,
   SlashCommandBuilder,
-  Collection
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle
 } = require("discord.js");
 
 const fs = require("fs");
@@ -21,13 +23,11 @@ http.createServer((req, res) => {
 });
 
 /* ================= DISCORD CLIENT ================= */
-
 const client = new Client({
   intents: [GatewayIntentBits.Guilds]
 });
 
 /* ================= DATABASE ================= */
-
 let db = {};
 if (fs.existsSync("./data.json")) {
   db = JSON.parse(fs.readFileSync("./data.json"));
@@ -50,7 +50,6 @@ function getUser(id) {
 }
 
 /* ================= LEVEL SYSTEM ================= */
-
 function addXP(user, amount) {
   user.xp += amount;
   const need = user.level * 100;
@@ -63,7 +62,6 @@ function addXP(user, amount) {
 }
 
 /* ================= DALGONA LEVELS ================= */
-
 const dalgonaLevels = [
   { name: "Triangle", reward: 10000, time: 3 },
   { name: "Circle", reward: 25000, time: 5 },
@@ -72,7 +70,6 @@ const dalgonaLevels = [
 ];
 
 /* ================= READY ================= */
-
 client.once("ready", async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 
@@ -98,7 +95,6 @@ client.once("ready", async () => {
 });
 
 /* ================= INTERACTIONS ================= */
-
 client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
@@ -126,7 +122,7 @@ client.on("interactionCreate", async interaction => {
     return interaction.reply("🎁 You received 20,000 coins!");
   }
 
-  /* ===== DALGONA GAME ===== */
+  /* ===== DALGONA GAME (BUTTON INTERFACE) ===== */
   if (interaction.commandName === "dalgona") {
 
     const levelIndex = user.level - 1;
@@ -137,35 +133,79 @@ client.on("interactionCreate", async interaction => {
 
     const game = dalgonaLevels[levelIndex];
 
-    await interaction.reply(
-      `🍪 Level ${user.level}: **${game.name}**
-Type \`cut\` within ${game.time} seconds!`
+    let cookieIntegrity = 100; // start at 100%
+    let carvingProgress = 0; // start at 0%
+
+    // Embed
+    const embed = new EmbedBuilder()
+      .setTitle(`🍪 DALGONA: 💀 ${game.name.toUpperCase()}`)
+      .setThumbnail("https://i.ibb.co/2vT8M1R/cookie.png")
+      .addFields(
+        { name: "Player", value: `<@${interaction.user.id}>`, inline: true },
+        { name: "Prize", value: `$${game.reward}`, inline: true },
+        { name: "Time", value: `${game.time}s`, inline: true },
+        { name: "Cookie Integrity", value: `100%`, inline: false },
+        { name: "Carving Progress", value: `[${"⬛".repeat(0)}${"⬜".repeat(10)}]`, inline: false }
+      );
+
+    // Buttons
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId("light").setLabel("🟢 Light").setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId("medium").setLabel("🔵 Medium").setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId("heavy").setLabel("🔴 Heavy").setStyle(ButtonStyle.Danger)
     );
 
-    const filter = m =>
-      m.author.id === interaction.user.id &&
-      m.content.toLowerCase() === "cut";
+    await interaction.reply({ embeds: [embed], components: [row] });
 
-    const collector =
-      interaction.channel.createMessageCollector({
-        filter,
-        time: game.time * 1000,
-        max: 1
-      });
+    const filter = i => i.user.id === interaction.user.id && ["light", "medium", "heavy"].includes(i.customId);
 
-    collector.on("collect", async () => {
-      user.coins += game.reward;
-      addXP(user, 50);
-      saveDB();
-
-      interaction.followUp(
-        `✅ Success! +${game.reward} coins`
-      );
+    const collector = interaction.channel.createMessageComponentCollector({
+      filter,
+      time: game.time * 1000
     });
 
-    collector.on("end", collected => {
-      if (!collected.size) {
-        interaction.followUp("💀 Cookie broke! Try again.");
+    collector.on("collect", async i => {
+      if (i.customId === "light") {
+        carvingProgress += 1; 
+        cookieIntegrity -= 2; 
+      } else if (i.customId === "medium") {
+        carvingProgress += 2;
+        cookieIntegrity -= 5;
+      } else if (i.customId === "heavy") {
+        carvingProgress += 4;
+        cookieIntegrity -= 10;
+      }
+
+      if (cookieIntegrity < 0) cookieIntegrity = 0;
+      if (carvingProgress > 10) carvingProgress = 10;
+
+      const updatedEmbed = EmbedBuilder.from(embed)
+        .spliceFields(3, 2,
+          { name: "Cookie Integrity", value: `${cookieIntegrity}%`, inline: false },
+          { name: "Carving Progress", value: `[${"🟩".repeat(carvingProgress)}${"⬛".repeat(10 - carvingProgress)}]`, inline: false }
+        );
+
+      await i.update({ embeds: [updatedEmbed], components: [row] });
+
+      // Win condition
+      if (carvingProgress >= 10) {
+        user.coins += game.reward;
+        addXP(user, 50);
+        saveDB();
+        collector.stop("completed");
+        interaction.editReply({ content: `✅ Success! +${game.reward} coins`, components: [], embeds: [] });
+      }
+
+      // Lose condition
+      if (cookieIntegrity <= 0) {
+        collector.stop("broke");
+        interaction.editReply({ content: "💀 Cookie broke! Try again.", components: [], embeds: [] });
+      }
+    });
+
+    collector.on("end", (collected, reason) => {
+      if (reason === "time") {
+        interaction.editReply({ content: "⏰ Time's up! Cookie broke!", components: [], embeds: [] });
       }
     });
   }
@@ -189,5 +229,4 @@ Type \`cut\` within ${game.time} seconds!`
 });
 
 /* ================= LOGIN ================= */
-
 client.login(process.env.TOKEN);
