@@ -1,18 +1,15 @@
 {
   "name": "dalgona-bot",
   "version": "1.0.0",
-  "description": "",
+  "description": "Dalgona Squid Game Discord Bot",
   "main": "index.js",
- "scripts": {
-  "start": "node index.js"
-}
-  "keywords": [],
-  "author": "",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "author": "khan",
   "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
-    "discord.js": "^14.25.1",
-    "dotenv": "^17.3.1",
-    "express": "^5.2.1"
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.4.5"
   }
 }
