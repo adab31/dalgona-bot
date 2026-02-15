@@ -59,7 +59,7 @@ const dalgonaLevels = [
 ];
 
 /* ================= USER TIMEOUTS ================= */
-const userTimeouts = new Map(); // userId -> timeout timestamp
+const userTimeouts = new Map(); // userId -> timestamp
 
 /* ================= READY ================= */
 client.once("ready", async () => {
@@ -82,7 +82,8 @@ client.on("interactionCreate", async interaction => {
   if (userTimeouts.has(interaction.user.id)) {
     const ts = userTimeouts.get(interaction.user.id);
     const remaining = ts - Date.now();
-    if (remaining > 0) return interaction.reply({ content: `⏳ You are on a 1-minute timeout! Wait ${Math.ceil(remaining/1000)}s.`, ephemeral: true });
+    if (remaining > 0)
+      return interaction.reply({ content: `⏳ You are on a 1-minute timeout! Wait ${Math.ceil(remaining/1000)}s.`, ephemeral: true });
     else userTimeouts.delete(interaction.user.id);
   }
 
@@ -104,9 +105,7 @@ client.on("interactionCreate", async interaction => {
   /* ===== DAILY REWARD UI ===== */
   if (interaction.commandName === "daily") {
     const now = Date.now();
-    if (now - user.lastDaily < 86400000) {
-      return interaction.reply({ content: "⏰ Daily already claimed!" });
-    }
+    if (now - user.lastDaily < 86400000) return interaction.reply({ content: "⏰ Daily already claimed!" });
     user.lastDaily = now;
     user.coins += 1000;
     saveDB();
@@ -140,7 +139,6 @@ client.on("interactionCreate", async interaction => {
 
   /* ===== DALGONA GAME UI ===== */
   if (interaction.commandName === "dalgona") {
-    // Cookie selection buttons with emojis
     const cookieRow = new ActionRowBuilder().addComponents(
       ...dalgonaLevels.map(c =>
         new ButtonBuilder()
@@ -162,7 +160,7 @@ client.on("interactionCreate", async interaction => {
 
       let cookieIntegrity = 100;
       let carvingProgress = 0;
-      let heavyCount = 0; // count heavy needle uses
+      let heavyCount = 0;
 
       const embed = new EmbedBuilder()
         .setTitle(`🍪 DALGONA: ${game.emoji} ${game.name}`)
@@ -183,18 +181,30 @@ client.on("interactionCreate", async interaction => {
 
       await i.update({ content: "Start carving your cookie!", embeds: [embed], components: [row] });
 
-      const filterCarve = j => j.user.id === interaction.user.id && ["light", "medium", "heavy"].includes(j.customId);
+      const filterCarve = j => {
+        if (userTimeouts.has(j.user.id)) {
+          const ts = userTimeouts.get(j.user.id);
+          const remaining = ts - Date.now();
+          if (remaining > 0) {
+            j.reply({ content: `⏳ You are on a 1-minute timeout! Wait ${Math.ceil(remaining/1000)}s.`, ephemeral: true });
+            return false;
+          } else userTimeouts.delete(j.user.id);
+        }
+        return j.user.id === interaction.user.id && ["light", "medium", "heavy"].includes(j.customId);
+      };
+
       const collectorCarve = interaction.channel.createMessageComponentCollector({ filter: filterCarve });
 
       collectorCarve.on("collect", async j => {
 
-        // Heavy needle handling
+        // Heavy needle logic
         if (j.customId === "heavy") {
           heavyCount++;
           cookieIntegrity = Math.floor(cookieIntegrity / 2);
+          carvingProgress += 4;
+
           if (heavyCount >= 3) {
-            // Cookie fully breaks + 1 min timeout
-            userTimeouts.set(j.user.id, Date.now() + 60000);
+            userTimeouts.set(j.user.id, Date.now() + 60000); // 1 min timeout
             const failEmbed = new EmbedBuilder()
               .setTitle("💀 Cookie Fully Broken!")
               .setDescription("You used heavy needle 3 times! You are now on a **1-minute timeout**.")
@@ -203,13 +213,12 @@ client.on("interactionCreate", async interaction => {
             collectorCarve.stop();
             return interaction.editReply({ embeds: [failEmbed], components: [] });
           }
-          carvingProgress += 4;
         } else if (j.customId === "medium") {
           carvingProgress += 2;
-          cookieIntegrity -= 7; // medium causes small crack
+          cookieIntegrity -= 7;
         } else {
           carvingProgress += 1;
-          cookieIntegrity -= 2; // light
+          cookieIntegrity -= 2;
         }
 
         if (cookieIntegrity < 0) cookieIntegrity = 0;
@@ -223,7 +232,6 @@ client.on("interactionCreate", async interaction => {
 
         await j.update({ embeds: [updatedEmbed], components: [row] });
 
-        // SUCCESS
         if (carvingProgress >= 10) {
           user.coins += game.reward;
           addXP(user, 50);
@@ -239,7 +247,6 @@ client.on("interactionCreate", async interaction => {
           return interaction.editReply({ embeds: [successEmbed], components: [] });
         }
 
-        // FAIL if cookie integrity zero
         if (cookieIntegrity <= 0) {
           const failEmbed = new EmbedBuilder()
             .setTitle("💀 Cookie Broke!")
