@@ -52,10 +52,10 @@ function addXP(user, amount) {
 
 /* ================= DALGONA LEVELS ================= */
 const dalgonaLevels = [
-  { name: "Triangle", reward: 10000 },
-  { name: "Circle", reward: 25000 },
-  { name: "Star", reward: 40000 },
-  { name: "Umbrella", reward: 75000 }
+  { name: "Triangle", reward: 10000, emoji: "▲" },
+  { name: "Circle", reward: 25000, emoji: "⭕" },
+  { name: "Star", reward: 40000, emoji: "★" },
+  { name: "Umbrella", reward: 75000, emoji: "☂️" }
 ];
 
 /* ================= READY ================= */
@@ -75,30 +75,66 @@ client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
   const user = getUser(interaction.user.id);
 
-  /* ===== BALANCE ===== */
+  /* ===== BALANCE UI ===== */
   if (interaction.commandName === "balance") {
-    return interaction.reply(`💰 Coins: ${user.coins}\n⭐ Level: ${user.level}`);
+    const balanceEmbed = new EmbedBuilder()
+      .setTitle(`💰 ${interaction.user.username}'s Balance`)
+      .setColor("Blue")
+      .setThumbnail("https://i.ibb.co/2vT8M1R/cookie.png")
+      .addFields(
+        { name: "Coins", value: `💵 ${user.coins}`, inline: true },
+        { name: "Level", value: `⭐ ${user.level}`, inline: true },
+        { name: "XP", value: `🔹 ${user.xp}/${user.level*100}`, inline: true }
+      )
+      .setFooter({ text: "Keep playing Dalgona to level up!" });
+    return interaction.reply({ embeds: [balanceEmbed] });
   }
 
-  /* ===== DAILY ===== */
+  /* ===== DAILY REWARD UI ===== */
   if (interaction.commandName === "daily") {
     const now = Date.now();
-    if (now - user.lastDaily < 86400000) return interaction.reply("⏰ Daily already claimed!");
+    if (now - user.lastDaily < 86400000) {
+      return interaction.reply({ content: "⏰ Daily already claimed!" });
+    }
     user.lastDaily = now;
-    user.coins += 1000; // daily reward
+    user.coins += 1000;
     saveDB();
-    return interaction.reply("🎁 You received 1,000 coins!");
+
+    const dailyEmbed = new EmbedBuilder()
+      .setTitle("🎁 Daily Reward Claimed!")
+      .setDescription(`You received **1,000 coins** 💵`)
+      .setColor("Gold")
+      .setThumbnail("https://i.ibb.co/2vT8M1R/cookie.png")
+      .setFooter({ text: "Come back tomorrow for more rewards!" });
+
+    return interaction.reply({ embeds: [dailyEmbed] });
   }
 
-  /* ===== DALGONA GAME (COOKIE SELECT + PRO PROGRESS) ===== */
-  if (interaction.commandName === "dalgona") {
+  /* ===== LEADERBOARD UI ===== */
+  if (interaction.commandName === "leaderboard") {
+    const sorted = Object.entries(db).sort((a, b) => b[1].coins - a[1].coins).slice(0, 5);
+    const lbEmbed = new EmbedBuilder()
+      .setTitle("🏆 Top Players")
+      .setColor("Purple")
+      .setThumbnail("https://i.ibb.co/2vT8M1R/cookie.png");
 
-    // Cookie selection buttons
+    let desc = "";
+    for (let i = 0; i < sorted.length; i++) {
+      const member = await client.users.fetch(sorted[i][0]);
+      desc += `**${i+1}. ${member.username}** — 💵 ${sorted[i][1].coins}\n`;
+    }
+    lbEmbed.setDescription(desc);
+    return interaction.reply({ embeds: [lbEmbed] });
+  }
+
+  /* ===== DALGONA GAME UI ===== */
+  if (interaction.commandName === "dalgona") {
+    // Cookie selection buttons with emojis
     const cookieRow = new ActionRowBuilder().addComponents(
       ...dalgonaLevels.map(c =>
         new ButtonBuilder()
           .setCustomId(`choose_${c.name}`)
-          .setLabel(c.name)
+          .setLabel(`${c.emoji} ${c.name}`)
           .setStyle(ButtonStyle.Primary)
       )
     );
@@ -113,18 +149,16 @@ client.on("interactionCreate", async interaction => {
       const game = dalgonaLevels.find(c => c.name === cookieName);
       collectorChoose.stop();
 
-      // Initialize game state
       let cookieIntegrity = 100;
       let carvingProgress = 0;
 
-      // Embed
       const embed = new EmbedBuilder()
-        .setTitle(`🍪 DALGONA: 💀 ${game.name.toUpperCase()}`)
+        .setTitle(`🍪 DALGONA: ${game.emoji} ${game.name}`)
         .setThumbnail("https://i.ibb.co/2vT8M1R/cookie.png")
         .setColor("Yellow")
         .addFields(
           { name: "Player", value: `<@${interaction.user.id}>`, inline: true },
-          { name: "Prize", value: `$${game.reward}`, inline: true },
+          { name: "Prize", value: `💵 ${game.reward}`, inline: true },
           { name: "Cookie Integrity", value: `100%`, inline: false },
           { name: "Carving Progress", value: `[${"⬛".repeat(0)}${"⬜".repeat(10)}]`, inline: false }
         );
@@ -142,12 +176,15 @@ client.on("interactionCreate", async interaction => {
       const collectorCarve = interaction.channel.createMessageComponentCollector({ filter: filterCarve });
 
       collectorCarve.on("collect", async j => {
-        // Update progress
-        if (j.customId === "light") { carvingProgress += 1; cookieIntegrity -= 2; }
-        else if (j.customId === "medium") { carvingProgress += 2; cookieIntegrity -= 5; }
-        else if (j.customId === "heavy") { carvingProgress += 4; cookieIntegrity -= 10; }
+        // Update progress and crack effect
+        if (j.customId === "light") {
+          carvingProgress += 1; cookieIntegrity -= 2;
+        } else if (j.customId === "medium") {
+          carvingProgress += 2; cookieIntegrity -= 7; // medium causes small crack
+        } else if (j.customId === "heavy") {
+          carvingProgress += 4; cookieIntegrity = Math.floor(cookieIntegrity / 2); // heavy halves cookie integrity
+        }
 
-        if (cookieIntegrity < 0) cookieIntegrity = 0;
         if (carvingProgress > 10) carvingProgress = 10;
 
         const updatedEmbed = EmbedBuilder.from(embed)
@@ -166,7 +203,7 @@ client.on("interactionCreate", async interaction => {
 
           const successEmbed = new EmbedBuilder()
             .setTitle("✅ Cookie Completed!")
-            .setDescription(`You successfully carved the ${game.name}!\n💰 +${game.reward} coins\n⭐ +50 XP`)
+            .setDescription(`You successfully carved the ${game.emoji} ${game.name}!\n💵 +${game.reward} coins\n⭐ +50 XP`)
             .setColor("Green")
             .setThumbnail("https://i.ibb.co/2vT8M1R/cookie.png");
 
@@ -187,17 +224,6 @@ client.on("interactionCreate", async interaction => {
         }
       });
     });
-  }
-
-  /* ===== LEADERBOARD ===== */
-  if (interaction.commandName === "leaderboard") {
-    const sorted = Object.entries(db).sort((a, b) => b[1].coins - a[1].coins).slice(0, 5);
-    let text = "🏆 Leaderboard\n\n";
-    for (let i = 0; i < sorted.length; i++) {
-      const member = await client.users.fetch(sorted[i][0]);
-      text += `${i + 1}. ${member.username} — ${sorted[i][1].coins} coins\n`;
-    }
-    interaction.reply(text);
   }
 });
 
