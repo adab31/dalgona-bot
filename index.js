@@ -58,6 +58,9 @@ const dalgonaLevels = [
   { name: "Umbrella", reward: 75000, emoji: "☂️" }
 ];
 
+/* ================= USER TIMEOUTS ================= */
+const userTimeouts = new Map(); // userId -> timeout timestamp
+
 /* ================= READY ================= */
 client.once("ready", async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
@@ -74,6 +77,14 @@ client.once("ready", async () => {
 client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
   const user = getUser(interaction.user.id);
+
+  /* ===== CHECK TIMEOUT ===== */
+  if (userTimeouts.has(interaction.user.id)) {
+    const ts = userTimeouts.get(interaction.user.id);
+    const remaining = ts - Date.now();
+    if (remaining > 0) return interaction.reply({ content: `⏳ You are on a 1-minute timeout! Wait ${Math.ceil(remaining/1000)}s.`, ephemeral: true });
+    else userTimeouts.delete(interaction.user.id);
+  }
 
   /* ===== BALANCE UI ===== */
   if (interaction.commandName === "balance") {
@@ -151,6 +162,7 @@ client.on("interactionCreate", async interaction => {
 
       let cookieIntegrity = 100;
       let carvingProgress = 0;
+      let heavyCount = 0; // count heavy needle uses
 
       const embed = new EmbedBuilder()
         .setTitle(`🍪 DALGONA: ${game.emoji} ${game.name}`)
@@ -163,7 +175,6 @@ client.on("interactionCreate", async interaction => {
           { name: "Carving Progress", value: `[${"⬛".repeat(0)}${"⬜".repeat(10)}]`, inline: false }
         );
 
-      // Carving buttons
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId("light").setLabel("🟢 Light").setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId("medium").setLabel("🔵 Medium").setStyle(ButtonStyle.Primary),
@@ -176,15 +187,32 @@ client.on("interactionCreate", async interaction => {
       const collectorCarve = interaction.channel.createMessageComponentCollector({ filter: filterCarve });
 
       collectorCarve.on("collect", async j => {
-        // Update progress and crack effect
-        if (j.customId === "light") {
-          carvingProgress += 1; cookieIntegrity -= 2;
+
+        // Heavy needle handling
+        if (j.customId === "heavy") {
+          heavyCount++;
+          cookieIntegrity = Math.floor(cookieIntegrity / 2);
+          if (heavyCount >= 3) {
+            // Cookie fully breaks + 1 min timeout
+            userTimeouts.set(j.user.id, Date.now() + 60000);
+            const failEmbed = new EmbedBuilder()
+              .setTitle("💀 Cookie Fully Broken!")
+              .setDescription("You used heavy needle 3 times! You are now on a **1-minute timeout**.")
+              .setColor("Red")
+              .setThumbnail("https://i.ibb.co/2vT8M1R/cookie.png");
+            collectorCarve.stop();
+            return interaction.editReply({ embeds: [failEmbed], components: [] });
+          }
+          carvingProgress += 4;
         } else if (j.customId === "medium") {
-          carvingProgress += 2; cookieIntegrity -= 7; // medium causes small crack
-        } else if (j.customId === "heavy") {
-          carvingProgress += 4; cookieIntegrity = Math.floor(cookieIntegrity / 2); // heavy halves cookie integrity
+          carvingProgress += 2;
+          cookieIntegrity -= 7; // medium causes small crack
+        } else {
+          carvingProgress += 1;
+          cookieIntegrity -= 2; // light
         }
 
+        if (cookieIntegrity < 0) cookieIntegrity = 0;
         if (carvingProgress > 10) carvingProgress = 10;
 
         const updatedEmbed = EmbedBuilder.from(embed)
@@ -211,17 +239,18 @@ client.on("interactionCreate", async interaction => {
           return interaction.editReply({ embeds: [successEmbed], components: [] });
         }
 
-        // FAIL
+        // FAIL if cookie integrity zero
         if (cookieIntegrity <= 0) {
           const failEmbed = new EmbedBuilder()
             .setTitle("💀 Cookie Broke!")
-            .setDescription(`Oh no! The cookie broke before completion.`)
+            .setDescription("Oh no! The cookie broke before completion.")
             .setColor("Red")
             .setThumbnail("https://i.ibb.co/2vT8M1R/cookie.png");
 
           collectorCarve.stop();
           return interaction.editReply({ embeds: [failEmbed], components: [] });
         }
+
       });
     });
   }
