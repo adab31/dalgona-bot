@@ -52,10 +52,10 @@ function addXP(user, amount) {
 
 /* ================= DALGONA LEVELS ================= */
 const dalgonaLevels = [
-  { name: "Triangle", reward: 10000, time: 3 },
-  { name: "Circle", reward: 25000, time: 5 },
-  { name: "Star", reward: 40000, time: 7 },
-  { name: "Umbrella", reward: 75000, time: 10 }
+  { name: "Triangle", reward: 10000 },
+  { name: "Circle", reward: 25000 },
+  { name: "Star", reward: 40000 },
+  { name: "Umbrella", reward: 75000 }
 ];
 
 /* ================= READY ================= */
@@ -85,100 +85,107 @@ client.on("interactionCreate", async interaction => {
     const now = Date.now();
     if (now - user.lastDaily < 86400000) return interaction.reply("⏰ Daily already claimed!");
     user.lastDaily = now;
-    user.coins += 1000; // Updated daily reward
+    user.coins += 1000; // daily reward
     saveDB();
     return interaction.reply("🎁 You received 1,000 coins!");
   }
 
-  /* ===== DALGONA GAME (BUTTON INTERFACE WITH SUCCESS/FAIL EMBEDS) ===== */
+  /* ===== DALGONA GAME (COOKIE SELECT + PRO PROGRESS) ===== */
   if (interaction.commandName === "dalgona") {
-    const levelIndex = user.level - 1;
-    if (!dalgonaLevels[levelIndex]) return interaction.reply("🏆 You completed all levels!");
-    const game = dalgonaLevels[levelIndex];
 
-    let cookieIntegrity = 100;
-    let carvingProgress = 0;
-
-    const embed = new EmbedBuilder()
-      .setTitle(`🍪 DALGONA: 💀 ${game.name.toUpperCase()}`)
-      .setThumbnail("https://i.ibb.co/2vT8M1R/cookie.png")
-      .setColor("Yellow")
-      .addFields(
-        { name: "Player", value: `<@${interaction.user.id}>`, inline: true },
-        { name: "Prize", value: `$${game.reward}`, inline: true },
-        { name: "Time", value: `60s`, inline: true },
-        { name: "Cookie Integrity", value: `100%`, inline: false },
-        { name: "Carving Progress", value: `[${"⬛".repeat(0)}${"⬜".repeat(10)}]`, inline: false }
-      );
-
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId("light").setLabel("🟢 Light").setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId("medium").setLabel("🔵 Medium").setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId("heavy").setLabel("🔴 Heavy").setStyle(ButtonStyle.Danger)
+    // Cookie selection buttons
+    const cookieRow = new ActionRowBuilder().addComponents(
+      ...dalgonaLevels.map(c =>
+        new ButtonBuilder()
+          .setCustomId(`choose_${c.name}`)
+          .setLabel(c.name)
+          .setStyle(ButtonStyle.Primary)
+      )
     );
 
-    await interaction.reply({ embeds: [embed], components: [row] });
+    await interaction.reply({ content: "🍪 Choose a cookie type to start!", components: [cookieRow] });
 
-    const filter = i => i.user.id === interaction.user.id && ["light", "medium", "heavy"].includes(i.customId);
+    const filterChoose = i => i.user.id === interaction.user.id && i.customId.startsWith("choose_");
+    const collectorChoose = interaction.channel.createMessageComponentCollector({ filter: filterChoose });
 
-    // Collector time fixed to 60 seconds
-    const collector = interaction.channel.createMessageComponentCollector({ filter, time: 60000 });
+    collectorChoose.on("collect", async i => {
+      const cookieName = i.customId.split("_")[1];
+      const game = dalgonaLevels.find(c => c.name === cookieName);
+      collectorChoose.stop();
 
-    collector.on("collect", async i => {
-      if (i.customId === "light") { carvingProgress += 1; cookieIntegrity -= 2; }
-      else if (i.customId === "medium") { carvingProgress += 2; cookieIntegrity -= 5; }
-      else if (i.customId === "heavy") { carvingProgress += 4; cookieIntegrity -= 10; }
+      // Initialize game state
+      let cookieIntegrity = 100;
+      let carvingProgress = 0;
 
-      if (cookieIntegrity < 0) cookieIntegrity = 0;
-      if (carvingProgress > 10) carvingProgress = 10;
-
-      const updatedEmbed = EmbedBuilder.from(embed)
-        .spliceFields(3, 2,
-          { name: "Cookie Integrity", value: `${cookieIntegrity}%`, inline: false },
-          { name: "Carving Progress", value: `[${"🟩".repeat(carvingProgress)}${"⬛".repeat(10 - carvingProgress)}]`, inline: false }
+      // Embed
+      const embed = new EmbedBuilder()
+        .setTitle(`🍪 DALGONA: 💀 ${game.name.toUpperCase()}`)
+        .setThumbnail("https://i.ibb.co/2vT8M1R/cookie.png")
+        .setColor("Yellow")
+        .addFields(
+          { name: "Player", value: `<@${interaction.user.id}>`, inline: true },
+          { name: "Prize", value: `$${game.reward}`, inline: true },
+          { name: "Cookie Integrity", value: `100%`, inline: false },
+          { name: "Carving Progress", value: `[${"⬛".repeat(0)}${"⬜".repeat(10)}]`, inline: false }
         );
 
-      await i.update({ embeds: [updatedEmbed], components: [row] });
+      // Carving buttons
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId("light").setLabel("🟢 Light").setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId("medium").setLabel("🔵 Medium").setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId("heavy").setLabel("🔴 Heavy").setStyle(ButtonStyle.Danger)
+      );
 
-      // SUCCESS EMBED
-      if (carvingProgress >= 10) {
-        user.coins += game.reward;
-        addXP(user, 50);
-        saveDB();
+      await i.update({ content: "Start carving your cookie!", embeds: [embed], components: [row] });
 
-        const successEmbed = new EmbedBuilder()
-          .setTitle("✅ Cookie Completed!")
-          .setDescription(`You successfully carved the ${game.name}!\n💰 +${game.reward} coins\n⭐ +50 XP`)
-          .setColor("Green")
-          .setThumbnail("https://i.ibb.co/2vT8M1R/cookie.png");
+      const filterCarve = j => j.user.id === interaction.user.id && ["light", "medium", "heavy"].includes(j.customId);
+      const collectorCarve = interaction.channel.createMessageComponentCollector({ filter: filterCarve });
 
-        collector.stop("completed");
-        return interaction.editReply({ embeds: [successEmbed], components: [] });
-      }
+      collectorCarve.on("collect", async j => {
+        // Update progress
+        if (j.customId === "light") { carvingProgress += 1; cookieIntegrity -= 2; }
+        else if (j.customId === "medium") { carvingProgress += 2; cookieIntegrity -= 5; }
+        else if (j.customId === "heavy") { carvingProgress += 4; cookieIntegrity -= 10; }
 
-      // FAIL EMBED
-      if (cookieIntegrity <= 0) {
-        const failEmbed = new EmbedBuilder()
-          .setTitle("💀 Cookie Broke!")
-          .setDescription(`Oh no! The cookie broke before completion.`)
-          .setColor("Red")
-          .setThumbnail("https://i.ibb.co/2vT8M1R/cookie.png");
+        if (cookieIntegrity < 0) cookieIntegrity = 0;
+        if (carvingProgress > 10) carvingProgress = 10;
 
-        collector.stop("broke");
-        return interaction.editReply({ embeds: [failEmbed], components: [] });
-      }
-    });
+        const updatedEmbed = EmbedBuilder.from(embed)
+          .spliceFields(2, 2,
+            { name: "Cookie Integrity", value: `${cookieIntegrity}%`, inline: false },
+            { name: "Carving Progress", value: `[${"🟩".repeat(carvingProgress)}${"⬛".repeat(10 - carvingProgress)}]`, inline: false }
+          );
 
-    collector.on("end", (collected, reason) => {
-      if (reason === "time") {
-        const timeoutEmbed = new EmbedBuilder()
-          .setTitle("⏰ Time's Up!")
-          .setDescription(`You ran out of time and the cookie broke.`)
-          .setColor("DarkRed")
-          .setThumbnail("https://i.ibb.co/2vT8M1R/cookie.png");
+        await j.update({ embeds: [updatedEmbed], components: [row] });
 
-        interaction.editReply({ embeds: [timeoutEmbed], components: [] });
-      }
+        // SUCCESS
+        if (carvingProgress >= 10) {
+          user.coins += game.reward;
+          addXP(user, 50);
+          saveDB();
+
+          const successEmbed = new EmbedBuilder()
+            .setTitle("✅ Cookie Completed!")
+            .setDescription(`You successfully carved the ${game.name}!\n💰 +${game.reward} coins\n⭐ +50 XP`)
+            .setColor("Green")
+            .setThumbnail("https://i.ibb.co/2vT8M1R/cookie.png");
+
+          collectorCarve.stop();
+          return interaction.editReply({ embeds: [successEmbed], components: [] });
+        }
+
+        // FAIL
+        if (cookieIntegrity <= 0) {
+          const failEmbed = new EmbedBuilder()
+            .setTitle("💀 Cookie Broke!")
+            .setDescription(`Oh no! The cookie broke before completion.`)
+            .setColor("Red")
+            .setThumbnail("https://i.ibb.co/2vT8M1R/cookie.png");
+
+          collectorCarve.stop();
+          return interaction.editReply({ embeds: [failEmbed], components: [] });
+        }
+      });
     });
   }
 
