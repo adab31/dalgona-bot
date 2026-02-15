@@ -8,6 +8,19 @@ const {
 } = require("discord.js");
 
 const fs = require("fs");
+const http = require("http");
+
+/* ================= PORT SERVER FOR RENDER ================= */
+const PORT = process.env.PORT || 3000;
+
+http.createServer((req, res) => {
+  res.writeHead(200, { "Content-Type": "text/plain" });
+  res.end("Bot is running!");
+}).listen(PORT, () => {
+  console.log(`✅ Server listening on port ${PORT}`);
+});
+
+/* ================= DISCORD CLIENT ================= */
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds]
@@ -178,4 +191,3 @@ Type \`cut\` within ${game.time} seconds!`
 /* ================= LOGIN ================= */
 
 client.login(process.env.TOKEN);
-
